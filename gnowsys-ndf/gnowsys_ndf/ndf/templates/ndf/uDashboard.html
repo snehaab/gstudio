@@ -6,7 +6,8 @@
 {% block meta_content %}
   <h3>{% trans "About" %}</h3>
 
-  {% blocktrans %}<b>Dashboard</b> shows users' own activities in the site.{% endblocktrans %}
+  {% blocktrans %}<b>Dashboard</b> shows users' own activities in the site.{% endblocktrans %}<br><br>
+  <b>{% trans "Activity Rating" %}: &nbsp;{{total_activity_rating}}<b><br> 
 {% endblock %}
 
 {% block style %}
@@ -111,6 +112,7 @@
         {% trans "Pages created" %}: &nbsp;{{page_count}}<br>
         <!-- {% trans "Pages modified" %}: &nbsp;{{pagecountmodified}}<br> -->
         {% trans "Files uploaded" %}: &nbsp;{{file_count}}<br>
+        <!--{% trans "Activity Rating" %}: &nbsp;{{total_activity_rating}}<br>-->
         </h5>
   		</div>
   	</div>

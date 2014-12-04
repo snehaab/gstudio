@@ -25,7 +25,7 @@ from gnowsys_ndf.ndf.models import *
 from gnowsys_ndf.ndf.views.methods import get_drawers,get_all_gapps
 from gnowsys_ndf.ndf.views.methods import get_user_group, get_user_task, get_user_notification, get_user_activity
 from gnowsys_ndf.ndf.views.file import * 
-from gnowsys_ndf.settings import GAPPS,GSTUDIO_SITE_DEFAULT_LANGUAGE
+from gnowsys_ndf.settings import GAPPS,GSTUDIO_SITE_DEFAULT_LANGUAGE, GSTUDIO_RESOURCE_CREATION_RATING, GSTUDIO_RESOURCE_REGISTRATION_RATING
 from gnowsys_ndf.ndf.templatetags.ndf_tags import get_all_user_groups
 
 #######################################################################################################################################
@@ -340,16 +340,22 @@ def uDashboard(request, group_id):
 
                     break
 
+# Rating for page creation:
+
     return render_to_response(
         "ndf/uDashboard.html",
         {
             'usr': current_user, 'username': usrname, 'user_id': ID, 'DOJ': date_of_join, 'author':auth,
             'group_id':group_id, 'groupid':group_id, 'group_name':group_name,
             'already_set': is_already_selected, 'prof_pic_obj': profile_pic_image,
-            'group_count':group_cur.count(), 'page_count':page_cur.count(), 'file_count':file_cur.count(),
+            'group_count':group_cur.count(), 
+            'page_count':page_cur.count(), 'page_create_rate':page_cur.count() * GSTUDIO_RESOURCE_CREATION_RATING, 
+            'file_count':file_cur.count(), 'file_create_rate':file_cur.count() * GSTUDIO_RESOURCE_CREATION_RATING,
             'user_groups':group_list, 'user_task': user_assigned, 'user_activity':user_activity,
             'user_notification':notification_list,
-            'dashboard_count':dashboard_count
+            'dashboard_count':dashboard_count,
+            'total_activity_rating': GSTUDIO_RESOURCE_REGISTRATION_RATING + ((page_cur.count() + file_cur.count()) * GSTUDIO_RESOURCE_CREATION_RATING)
+             
         },
         context_instance=RequestContext(request)
     )
