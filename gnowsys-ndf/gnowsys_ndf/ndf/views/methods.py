@@ -414,13 +414,16 @@ def get_node_common_fields(request, node, group_id, node_type, coll_set=None):
 
   gcollection = db[Node.collection_name]
   group_obj=gcollection.Node.one({'_id':ObjectId(group_id)})
+  theme_item_GST = gcollection.Node.one({'_type': 'GSystemType', 'name': 'theme_item'})
   topic_GST = gcollection.Node.one({'_type': 'GSystemType', 'name':'Topic'})
   collection = None
 
   if coll_set:
       if "Theme" in coll_set.member_of_names_list:
         node_type = theme_GST
-      else:
+      if "theme_item" in coll_set.member_of_names_list:
+        node_type = theme_item_GST
+      if "Topic" in coll_set.member_of_names_list:
         node_type = topic_GST
                                 
       name = request.POST.get('name_'+ str(coll_set._id),"")
@@ -456,11 +459,6 @@ def get_node_common_fields(request, node, group_id, node_type, coll_set=None):
     elif check_collection == "module":    
       right_drawer_list = request.POST.get('module_list','')
 
-  metadata = request.POST.get("metadata_info", '') 
-  if metadata:
-    if metadata == "metadata":
-      node_gst = gcollection.Node.one({'_id':ObjectId(node.member_of[0]) })
-      get_node_metadata(request,node,node_gst)
 
   map_geojson_data = request.POST.get('map-geojson-data')
   user_last_visited_location = request.POST.get('last_visited_location')
@@ -482,8 +480,8 @@ def get_node_common_fields(request, node, group_id, node_type, coll_set=None):
       node.member_of.append(node_type._id)
       if node_type.name == "Term":
         node.member_of.append(topic_GST._id)
-
-
+        
+     
     if group_obj._id not in node.group_set:
       node.group_set.append(group_obj._id)
 
@@ -616,7 +614,6 @@ def get_node_common_fields(request, node, group_id, node_type, coll_set=None):
 
     if usrid not in node.contributors:
       node.contributors.append(usrid)
-
   return is_changed
 # ============= END of def get_node_common_fields() ==============
   
@@ -630,7 +627,7 @@ def build_collection(node, check_collection, right_drawer_list, checked):
       # prior_node_list = [ObjectId(each.strip()) for each in prior_node_list.split(",")]
       right_drawer_list = [ObjectId(each.strip()) for each in right_drawer_list.split(",")]
 
-      if set(node.prior_node) != set(right_drawer_list):
+      if node.prior_node != right_drawer_list:
         i = 0
         node.prior_node=[]
         while (i < len(right_drawer_list)):
@@ -653,7 +650,8 @@ def build_collection(node, check_collection, right_drawer_list, checked):
 
       nlist = node.collection_set
 
-      if set(node.collection_set) != set(right_drawer_list):
+      # if set(node.collection_set) != set(right_drawer_list):
+      if node.collection_set != right_drawer_list:
         i = 0          
         node.collection_set = []
         # checking if each _id in collection_list is valid or not
@@ -1038,7 +1036,7 @@ def update_mobwrite_content_org(node_system):
   return textobj
 
 
-def get_node_metadata(request, node, node_type, **kwargs):
+def get_node_metadata(request, node, **kwargs):
     '''
     Getting list of updated GSystems with kwargs arguments.
     Pass is_changed=True as last/fourth argument while calling this/get_node_metadata method.
@@ -1557,8 +1555,8 @@ def create_gattribute(subject_id, attribute_type_node, object_value, **kwargs):
 
 
 def create_grelation(subject_id, relation_type_node, right_subject_id_or_list, **kwargs):
-  """
-  Creates single or multiple GRelation documents (instances) based on given RelationType's cardinality (one-to-one / one-to-many).
+  """Creates single or multiple GRelation documents (instances) based on given 
+  RelationType's cardinality (one-to-one / one-to-many).
 
   Arguments:
   subject_id -- ObjectId of the subject-node
@@ -1717,22 +1715,29 @@ def create_grelation(subject_id, relation_type_node, right_subject_id_or_list, *
         if node.right_subject == right_subject_id_or_list:
           # If match found, it means it could be either DELETED one or PUBLISHED one
 
-          # Set gr_node value as matched value, so that no need to create new one 
-          gr_node = node
-
           if node.status == u"DELETED":
             # If deleted, change it's status back to Published from Deleted
             node.status = u"PUBLISHED"
             node.save()
             info_message = " SingleGRelation: GRelation ("+node.name+") status updated from 'DELETED' to 'PUBLISHED' successfully.\n"
 
-            collection.update({'_id': subject_id, 'relation_set.'+relation_type_node.name: {'$exists': True}}, 
-                              {'$addToSet': {'relation_set.$.'+relation_type_node.name: node.right_subject}}, 
-                              upsert=False, multi=False
-                            )
+            collection.update(
+              {'_id': subject_id, 'relation_set.'+relation_type_node.name: {'$exists': True}}, 
+              {'$addToSet': {'relation_set.$.'+relation_type_node.name: node.right_subject}}, 
+              upsert=False, multi=False
+            )
 
           elif node.status == u"PUBLISHED":
+            collection.update(
+              {'_id': subject_id, 'relation_set.'+relation_type_node.name: {'$exists': True}}, 
+              {'$addToSet': {'relation_set.$.'+relation_type_node.name: node.right_subject}}, 
+              upsert=False, multi=False
+            )
             info_message = " SingleGRelation: GRelation ("+node.name+") already exists !\n"
+
+          # Set gr_node value as matched value, so that no need to create new one
+          node.reload()
+          gr_node = node
 
         else:
           # If match not found and if it's PUBLISHED one, modify it to DELETED
@@ -1744,7 +1749,13 @@ def create_grelation(subject_id, relation_type_node, right_subject_id_or_list, *
                               {'$pull': {'relation_set.$.'+relation_type_node.name: node.right_subject}}, 
                               upsert=False, multi=False
                             )
-
+            info_message = " SingleGRelation: GRelation ("+node.name+") status updated from 'DELETED' to 'PUBLISHED' successfully.\n"
+          
+          elif node.status == u'DELETED':
+            collection.update({'_id': subject_id, 'relation_set.'+relation_type_node.name: {'$exists': True}}, 
+                              {'$pull': {'relation_set.$.'+relation_type_node.name: node.right_subject}}, 
+                              upsert=False, multi=False
+                            )
             info_message = " SingleGRelation: GRelation ("+node.name+") status updated from 'DELETED' to 'PUBLISHED' successfully.\n"
 
       if gr_node is None:
@@ -1774,6 +1785,7 @@ def create_grelation(subject_id, relation_type_node, right_subject_id_or_list, *
                             {'$addToSet': {'relation_set': {relation_type_node.name: [right_subject_id_or_list]}}}, 
                             upsert=False, multi=False
                           )
+
         else:
           collection.update({'_id': subject_id, 'relation_set.'+relation_type_node.name: {'$exists': True}}, 
                             {'$addToSet': {'relation_set.$.'+relation_type_node.name: right_subject_id_or_list}}, 
