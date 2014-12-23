@@ -1,61 +1,42 @@
 ''' -- Imports from python libraries -- '''
 from django.template.defaultfilters import slugify
-import hashlib # for calculating md5
-# import os -- Keep such imports here
-import json
+
+import json, hashlib, magic, subprocess, mimetypes, os, re, ox, threading
 
 ''' -- imports from installed packages -- '''
-from django.http import HttpResponseRedirect
-from django.http import HttpResponse
-from django.shortcuts import render_to_response #, render  uncomment when to use
+from django.http import HttpResponseRedirect, HttpResponse, Http404
+from django.shortcuts import render_to_response 
 from django.template import RequestContext
 from django.core.urlresolvers import reverse
 from django.contrib.auth.decorators import login_required
 from django_mongokit import get_database
+from django.contrib.auth.models import User
 
 from mongokit import paginator
-from gnowsys_ndf.settings import GSTUDIO_SITE_VIDEO
-from gnowsys_ndf.settings import EXTRA_LANG_INFO
+from gnowsys_ndf.settings import GSTUDIO_SITE_VIDEO, EXTRA_LANG_INFO, GAPPS, MEDIA_ROOT
 from gnowsys_ndf.ndf.org2any import org2html
-from gnowsys_ndf.ndf.views.methods import get_node_metadata, get_page
+from gnowsys_ndf.ndf.views.methods import get_node_metadata, get_page, get_node_common_fields, set_all_urls
+from gnowsys_ndf.ndf.models import Node, GSystemType, File, GRelation, STATUS_CHOICES, Triple
+
 try:
     from bson import ObjectId
 except ImportError:  # old pymongo
     from pymongo.objectid import ObjectId
 
-import magic  #for this install python-magic example:pip install python-magic
-import subprocess
-import mimetypes
-from PIL import Image, ImageDraw, ImageFile #install PIL example:pip install PIL
+from PIL import Image, ImageDraw #install PIL example:pip install PIL
 from StringIO import StringIO
-import os, re
-import subprocess
-import ox
-import threading
-from django.http import Http404
-#from string import maketrans 
 
-''' -- imports from application folders/files -- '''
-from gnowsys_ndf.settings import GAPPS, MEDIA_ROOT
-
-from gnowsys_ndf.ndf.models import Node, GRelation, Triple
-from gnowsys_ndf.ndf.models import GSystemType#, GSystem uncomment when to use
-from gnowsys_ndf.ndf.models import File
-from gnowsys_ndf.ndf.models import STATUS_CHOICES
-from gnowsys_ndf.ndf.views.methods import get_node_common_fields,create_grelation_list ,set_all_urls
-from gnowsys_ndf.ndf.views.methods import create_grelation
-from gnowsys_ndf.ndf.views.methods import create_gattribute
+############################################
 
 db = get_database()
 collection = db[Node.collection_name]
 collection_tr = db[Triple.collection_name]
-GST_FILE = collection.GSystemType.one({'name': GAPPS[1], '_type':'GSystemType'})
-GST_IMAGE = collection.GSystemType.one({'name': GAPPS[3], '_type':'GSystemType'})
-GST_VIDEO = collection.GSystemType.one({'name': GAPPS[4], '_type':'GSystemType'})
-pandora_video_st = collection.Node.one({'$and':[{'name':'Pandora_video'}, {'_type':'GSystemType'}]})
-app=collection.Node.one({'name':u'File','_type':'GSystemType'})
+GST_FILE = collection.GSystemType.one({'name': 'File', '_type':'GSystemType'})
+GST_IMAGE = collection.GSystemType.one({'name': 'Image', '_type':'GSystemType'})
+GST_VIDEO = collection.GSystemType.one({'name': 'Video', '_type':'GSystemType'})
+pandora_video_st = collection.Node.one({'name':'Pandora_video', '_type':'GSystemType'})
+app=GST_FILE
 
-# VIEWS DEFINED FOR GAPP -- 'FILE'
 
 lock=threading.Lock()
 count = 0    
@@ -87,24 +68,24 @@ def file(request, group_id, file_id=None, page_no=1):
     shelf_list = {}
     auth = collection.Node.one({'_type': 'Author', 'name': unicode(request.user.username) }) 
     
-    if auth:
-      has_shelf_RT = collection.Node.one({'_type': 'RelationType', 'name': u'has_shelf' })
-      dbref_has_shelf = has_shelf_RT.get_dbref()
-      shelf = collection_tr.Triple.find({'_type': 'GRelation', 'subject': ObjectId(auth._id), 'relation_type': dbref_has_shelf })        
-      shelf_list = {}
+    # if auth:
+    #   has_shelf_RT = collection.Node.one({'_type': 'RelationType', 'name': u'has_shelf' })
+    #   dbref_has_shelf = has_shelf_RT.get_dbref()
+    #   shelf = collection_tr.Triple.find({'_type': 'GRelation', 'subject': ObjectId(auth._id), 'relation_type': dbref_has_shelf })        
+    #   shelf_list = {}
 
-      if shelf:
-        for each in shelf:
-            shelf_name = collection.Node.one({'_id': ObjectId(each.right_subject)}) 
-            shelves.append(shelf_name)
+    #   if shelf:
+    #     for each in shelf:
+    #         shelf_name = collection.Node.one({'_id': ObjectId(each.right_subject)}) 
+    #         shelves.append(shelf_name)
 
-            shelf_list[shelf_name.name] = []         
-            for ID in shelf_name.collection_set:
-              shelf_item = collection.Node.one({'_id': ObjectId(ID) })
-              shelf_list[shelf_name.name].append(shelf_item.name)
+    #         shelf_list[shelf_name.name] = []         
+    #         for ID in shelf_name.collection_set:
+    #           shelf_item = collection.Node.one({'_id': ObjectId(ID) })
+    #           shelf_list[shelf_name.name].append(shelf_item.name)
 
-      else:
-        shelves = []
+    #   else:
+    #     shelves = []
     # End of user shelf
 
     pandoravideoCollection=collection.Node.find({'member_of':pandora_video_st._id, 'group_set': ObjectId(group_id) })
@@ -113,7 +94,7 @@ def file(request, group_id, file_id=None, page_no=1):
       # File search view
       title = GST_FILE.name
       
-      search_field = request.POST['search_field']
+      search_field = request.POST.get('search_field', '')
 
       datavisual = []
       if GSTUDIO_SITE_VIDEO == "pandora" or GSTUDIO_SITE_VIDEO == "pandora_and_local":
@@ -703,23 +684,21 @@ def submitDoc(request, group_id):
             if mtitle:
                 if index == 0:
 
-                    f, is_video = save_file(each, mtitle, userid, group_id, content_org, tags, img_type, language, usrname, access_policy)
+                    f, is_video = save_file(each, mtitle, userid, group_id, content_org, tags, img_type, language, usrname, access_policy, oid=True)
                 else:
                     title = mtitle + "_" + str(i) #increament title        
-                    f, is_video = save_file(each, title, userid, group_id, content_org, tags, img_type, language, usrname, access_policy)
+                    f, is_video = save_file(each, title, userid, group_id, content_org, tags, img_type, language, usrname, access_policy, oid=True)
                     i = i + 1
             else:
                 title = each.name
-                f = save_file(each,title,userid,group_id, content_org, tags, img_type, language, usrname, access_policy)
-
+                f = save_file(each,title,userid,group_id, content_org, tags, img_type, language, usrname, access_policy, oid=True)
             if not obj_id_instance.is_valid(f):
               alreadyUploadedFiles.append(f)
               title = mtitle
         
-        str1 = str(alreadyUploadedFiles)
+        # str1 = alreadyUploadedFiles
        
         if img_type != "": 
-            
             return HttpResponseRedirect(reverse('dashboard', kwargs={'group_id': int(userid)}))
 
         elif topic_file != "": 
@@ -727,14 +706,20 @@ def submitDoc(request, group_id):
             return HttpResponseRedirect(reverse('add_file', kwargs={'group_id': group_id }))
 
         else:
-            if str1:
-                return HttpResponseRedirect(page_url+'?var='+str1)
+            if alreadyUploadedFiles:
+                # return HttpResponseRedirect(page_url+'?var='+str1)
+                # if (type(alreadyUploadedFiles[0][0]).__name__ == "ObjectId"):
+                return HttpResponseRedirect(reverse("file_detail", kwargs={'group_id': group_id, "_id": alreadyUploadedFiles[0][0].__str__() }))
+                # else:
+                    # if alreadyUploadedFiles[0][1]:
+                        # return HttpResponseRedirect(reverse("file_detail", kwargs={'group_id': group_id, "_id": alreadyUploadedFiles[0][0].__str__() }))
             else:
-              if is_video == "True":
-                return HttpResponseRedirect(page_url+'?'+'is_video='+is_video)
-              else:
-                return HttpResponseRedirect(page_url)
-                
+                return HttpResponseRedirect(reverse('file', kwargs={'group_id': group_id }))
+
+                # if is_video == "True":
+                #     return HttpResponseRedirect(page_url+'?'+'is_video='+is_video)
+                # else:
+                #     return HttpResponseRedirect(page_url)
 
     else:
         return HttpResponseRedirect(reverse('homepage',kwargs={'group_id': group_id, 'groupid':group_id}))
@@ -746,15 +731,21 @@ def save_file(files,title, userid, group_id, content_org, tags, img_type = None,
     """
       this will create file object and save files in gridfs collection
     """
-    global count,first_object
+    
+    global count, first_object
+    
+    # overwritting count and first object by sending arguments kwargs (count=0, first_object="") 
+    # this is to prevent from forming collection of first object containing subsequent objects.
+    count = kwargs["count"] if kwargs.has_key("count") else count
+    first_object = kwargs["first_object"] if kwargs.has_key("first_object") else first_object
+    
     is_video = ""
-    fcol = db[File.collection_name]
+    fcol = get_database()[File.collection_name]
     fileobj = fcol.File()
     filemd5 = hashlib.md5(files.read()).hexdigest()
     files.seek(0)
     size, unit = getFileSize(files)
     size = {'size':round(size, 2), 'unit':unicode(unit)}
-    
     
     if fileobj.fs.files.exists({"md5":filemd5}):
         coll_oid = get_database()['fs.files']
@@ -817,7 +808,10 @@ def save_file(files,title, userid, group_id, content_org, tags, img_type = None,
                     # Required to link temporary files with the current user who is modifying this document
                     filename_content = slugify(title) + "-" + usrname + "-"
                     fileobj.content = org2html(content_org, file_prefix = filename_content)
-                fileobj.tags = [unicode(t.strip()) for t in tags.split(",") if t != ""]
+
+                if not type(tags) is list:
+                    tags = [unicode(t.strip()) for t in tags.split(",") if t != ""]
+                fileobj.tags = tags
             
             fileobj.save()
             files.seek(0)                                                                  #moving files cursor to start
@@ -855,10 +849,10 @@ def save_file(files,title, userid, group_id, content_org, tags, img_type = None,
                 t.start()
             
             '''storing thumbnail of pdf and svg files  in saved object'''        
-            if 'pdf' in filetype or 'svg' in filetype:
-                thumbnail_pdf = convert_pdf_thumbnail(files,fileobj._id)
-                tobjectid = fileobj.fs.files.put(thumbnail_pdf.read(), filename=filename+"-thumbnail", content_type=filetype)
-                collection.File.find_and_modify({'_id':fileobj._id},{'$push':{'fs_file_ids':tobjectid}})
+            # if 'pdf' in filetype or 'svg' in filetype:
+            #     thumbnail_pdf = convert_pdf_thumbnail(files,fileobj._id)
+            #     tobjectid = fileobj.fs.files.put(thumbnail_pdf.read(), filename=filename+"-thumbnail", content_type=filetype)
+            #     collection.File.find_and_modify({'_id':fileobj._id},{'$push':{'fs_file_ids':tobjectid}})
              
             
             '''storing thumbnail of image in saved object'''

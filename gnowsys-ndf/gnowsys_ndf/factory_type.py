@@ -185,13 +185,20 @@ factory_relation_types = [
     }, 
 
     {'has_profile_pic': {
-            'subject_type':['Author'],
+            'subject_type':['Author','Group'],
+            'object_type':['Image'], 
+            'inverse_name':'profile_pic_of', 
+            'meta_type':'factory_types'
+        }
+    },
+    
+    {'has_Banner_pic': {
+            'subject_type':['Author','Group'],
             'object_type':['Image'], 
             'inverse_name':'profile_pic_of', 
             'meta_type':'factory_types'
         }
     }, 
-
     {'has_thread': {
             'subject_type':['Page', 'File'],
             'object_type':['Twist'], 
@@ -204,7 +211,8 @@ factory_relation_types = [
             'subject_type':['Page','File', 'Topic','Pandora_video'],
             'object_type':['Page','Concept','Topic', 'File', 'Pandora_video'], 
             'inverse_name':'taught_by', 
-            'meta_type':'factory_types'
+            'meta_type':'factory_types',
+            'object_cardinality': 100
         }
     },
 
@@ -228,6 +236,15 @@ factory_relation_types = [
             'subject_type': ['Task'],
             'object_type': ['GList'], 
             'inverse_name': 'is_type_of', 
+            'meta_type': 'factory_types',
+            'object_cardinality': 1
+        }
+    }, 
+
+    {'has_cover_page': {
+            'subject_type': ['File'],
+            'object_type': ['File'], 
+            'inverse_name': 'cover_page_of', 
             'meta_type': 'factory_types',
             'object_cardinality': 1
         }

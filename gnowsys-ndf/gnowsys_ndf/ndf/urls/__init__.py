@@ -12,6 +12,8 @@ from gnowsys_ndf.ndf.forms import *
 from gnowsys_ndf.ndf.views.home import HomeRedirectView, homepage
 from gnowsys_ndf.ndf.views.methods import tag_info
 from gnowsys_ndf.ndf.views.custom_app_view import custom_app_view, custom_app_new_view
+from jsonrpc import jsonrpc_site
+from gnowsys_ndf.ndf.views import rpc_resources
 
 admin.autodiscover()
 
@@ -52,12 +54,18 @@ urlpatterns = patterns('',
     (r'^(?P<group_id>[^/]+)/', include('gnowsys_ndf.ndf.urls.user')),
     (r'^(?P<group_id>[^/]+)/ratings', include('gnowsys_ndf.ndf.urls.ratings')),                 
     (r'^(?P<group_id>[^/]+)/topics', include('gnowsys_ndf.ndf.urls.topics')),
+    # django-json-rpc method calls 
+    url(r'^json/browse/$', 'jsonrpc.views.browse', name='jsonrpc_browser'),
+    url(r'^json/$', jsonrpc_site.dispatch, name='jsonrpc_mountpoint'),
+    # url for directly calling RPC method from browser
+    (r'^json/(?P<method>[a-zA-Z0-9.-_]+)$', jsonrpc_site.dispatch),
 
     url(r'^(?P<group_id>[^/]+)/topic_details/(?P<app_Id>[\w-]+)', 'gnowsys_ndf.ndf.views.topics.topic_detail_view', name='topic_details'),
 
     (r'^(?P<group_id>[^/]+)/e-library', include('gnowsys_ndf.ndf.urls.e-library')),
     (r'^(?P<group_id>[^/]+)/term', include('gnowsys_ndf.ndf.urls.term')),
     (r'^(?P<group_id>[^/]+)/mis', include('gnowsys_ndf.ndf.urls.mis', namespace='mis'), {'app_name': "MIS"}),
+    (r'^(?P<group_id>[^/]+)/event', include('gnowsys_ndf.ndf.urls.event')),
     (r'^(?P<group_id>[^/]+)/mis-po', include('gnowsys_ndf.ndf.urls.mis', namespace='mis-po'), {'app_name': "MIS-PO"}),
 
     # meeting app

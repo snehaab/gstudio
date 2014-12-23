@@ -22,7 +22,7 @@ except ImportError:  # old pymongo
 
 ''' -- imports from application folders/files -- '''
 from gnowsys_ndf.ndf.models import *
-from gnowsys_ndf.ndf.views.methods import get_drawers,get_all_gapps
+from gnowsys_ndf.ndf.views.methods import get_drawers,get_all_gapps,create_grelation
 from gnowsys_ndf.ndf.views.methods import get_user_group, get_user_task, get_user_notification, get_user_activity
 from gnowsys_ndf.ndf.views.file import * 
 from gnowsys_ndf.settings import GAPPS,GSTUDIO_SITE_DEFAULT_LANGUAGE, GSTUDIO_RESOURCE_CREATION_RATING, GSTUDIO_RESOURCE_REGISTRATION_RATING
@@ -44,7 +44,6 @@ ins_objectid  = ObjectId()
 
 
 def userpref(request,group_id):
-    print request.user.username
     auth = collection.Node.one({'_type': 'Author', 'name': unicode(request.user.username) })
     lan_dict={}
     pref=request.POST["pref"]
@@ -307,16 +306,29 @@ def uDashboard(request, group_id):
         label = ntype.label.split("-")[0]
         notification_list.append(label)
 
+    # Retrieving Tasks Assigned for User (Only "New" and "In Progress")
     user_assigned = []
-    attributetype_assignee = collection.Node.find_one({"_type":'AttributeType', 'name':'Assignee'})
-    attr_assignee = collection.Node.find(
-        {"_type":"GAttribute", "attribute_type.$id":attributetype_assignee._id, "object_value":request.user.username}
-    ).sort('last_update',-1).limit(10)
-    dashboard_count.update({'Task':attr_assignee.count()})
-    for attr in attr_assignee :
-        task_node = collection.Node.one({'_id':attr.subject})
-        if task_node:   
-            user_assigned.append(task_node) 
+    # attributetype_assignee = collection.Node.find_one({"_type":'AttributeType', 'name':'Assignee'})
+    # attr_assignee = collection.Node.find(
+    #     {"_type": "GAttribute", "attribute_type.$id": attributetype_assignee._id, "object_value": request.user.id}
+    # ).sort('last_update', -1).limit(10)
+    
+    # dashboard_count.update({'Task':attr_assignee.count()})
+    # for attr in attr_assignee :
+    #     task_node = collection.Node.one({'_id':attr.subject})
+    #     if task_node:   
+    #         user_assigned.append(task_node) 
+    task_gst = collection.Node.one(
+        {'_type': "GSystemType", 'name': "Task"}
+    )
+    task_cur = collection.Node.find(
+        {'member_of': task_gst._id, 'attribute_set.Status': {'$in': ["New", "In Progress"]}, 'attribute_set.Assignee': request.user.id}
+    ).sort('last_update', -1).limit(10)
+
+    dashboard_count.update({'Task': task_cur.count()})
+
+    for task_node in task_cur:
+        user_assigned.append(task_node)
 
     obj = collection.Node.find(
         {'_type': {'$in' : [u"GSystem", u"File"]}, 'contributors': int(ID) ,'group_set': {'$all': [ObjectId(group_id)]}}
@@ -419,7 +431,6 @@ def user_template_view(request,group_id):
        
     notification_object = notification.NoticeSetting.objects.filter(user_id=request.user.id)
     for each in notification_object:
-      print "notification details"
       ntid = each.notice_type_id
       ntype = notification.NoticeType.objects.get(id=ntid)
       label = ntype.label.split("-")[0]
@@ -480,6 +491,9 @@ def group_dashboard(request, group_id):
     """
     This view returns data required for group's dashboard.
     """
+    gridfs = get_database()['fs.files']
+    profile_pic_image=""
+    
     if ObjectId.is_valid(group_id) is False :
         group_ins = collection.Node.find_one({'_type': "Group","name": group_id})
         auth = collection.Node.one({'_type': 'Author', 'name': unicode(request.user.username) })
@@ -493,11 +507,146 @@ def group_dashboard(request, group_id):
         group_ins = collection.Node.find_one({'_type': "Group","_id": ObjectId(group_id)})
         if group_ins:
             group_id = group_ins._id
+    
+    if request.method == "POST" :
+        """
+        This will take the image uploaded by user and it searches if its already availale in gridfs 
+        using its md5 
+        """
+        if (request.POST.get('type','')=='banner_pic'):
+          has_profile_pic_str = "has_Banner_pic"
+        if (request.POST.get('type','')=='profile_pic'):
+          has_profile_pic_str="has_profile_pic"  
+        gridfs = get_database()['fs.files']
+        pp = None
+        profile_pic_image=""
+        if has_profile_pic_str in request.FILES:
+            pp = request.FILES[has_profile_pic_str]
+            has_profile_pic = collection.Node.one({'_type': "RelationType", 'name': has_profile_pic_str})
+            # Find md5
+            pp_md5 = hashlib.md5(pp.read()).hexdigest()
+            # Check whether this md5 exists in file collection
+            gridfs_node = gridfs.one({'md5': pp_md5})
+            if gridfs_node:
+                # md5 exists
+                right_subject = gridfs_node["docid"]
+                
+                # Check whether already selected
+                is_already_selected = collection.Triple.one(
+                    {'subject': group_id, 'right_subject': right_subject, 'status': u"PUBLISHED"}
+                )
 
+                if is_already_selected:
+                    # Already selected found
+                    # Signify already selected
+                    is_already_selected = gridfs_node["filename"]
+                
+                else:
+                    # Already uploaded found
+                    # Reset already uploaded as to be selected
+                    profile_pic_image = create_grelation(ObjectId(group_id), has_profile_pic, right_subject)
+
+                profile_pic_image = collection.Node.one({'_type': "File", '_id': right_subject})
+            else:
+                # Otherwise (md5 doesn't exists)
+                # Upload image
+                # submitDoc(request, group_id)
+                field_value = save_file(pp, pp, request.user.id, group_id, "", "", oid=True)[0]
+                profile_pic_image = collection.Node.one({'_type': "File", 'name': unicode(pp)})
+                # Create new grelation and append it to that along with given user
+                gr_node = create_grelation(group_id, has_profile_pic, profile_pic_image._id)
+        
+    banner_pic=""
+    group=collection.Node.one({"_id":ObjectId(group_id)})
+    for each in group.relation_set:
+                if "has_profile_pic" in each:
+                    profile_pic_image = collection.Node.one(
+                        {'_type': "File", '_id': each["has_profile_pic"][0]}
+                    )
+                if "has_Banner_pic" in each:
+                    banner_pic = collection.Node.one(
+                        {'_type': "File", '_id': each["has_Banner_pic"][0]}
+                    )
+    
+    # Approve StudentCourseEnrollment view
+    approval = False
+    enrollment_details = []
+    enrollment_columns = []
+
+    sce_gst = collection.Node.one({'_type': "GSystemType", 'name': "StudentCourseEnrollment"})
+    if sce_gst:
+        sce_cur = collection.Node.find(
+            {'member_of': sce_gst._id, 'group_set': ObjectId(group_id), 'status': u"PUBLISHED"},
+            {'member_of': 1}
+        )
+
+        if sce_cur.count():
+            approval = True
+            enrollment_columns = ["College", "Course", "Completed On", "Status", "Enrolled", "Remaining", "Approved", "Rejected"]
+            for sce_gs in sce_cur:
+                sce_gs.get_neighbourhood(sce_gs.member_of)
+                data = {}
+
+                approve_task = sce_gs.has_corresponding_task[0]
+                approve_task.get_neighbourhood(approve_task.member_of)
+                data["Status"] = approve_task.Status
+                # Check for corresponding task's status
+                # Continue with next if status is found as "Closed"
+                # As we listing only 'In Progress'/'New' task(s)
+                if data["Status"] == "Closed":
+                    continue
+
+                data["_id"] = str(sce_gs._id)
+                data["College"] = sce_gs.for_college[0].name
+                if len(sce_gs.for_acourse) > 1:
+                    # It means it's a Foundation Course's (FC) enrollment
+                    start_enroll = None
+                    end_enroll = None
+                    for each in sce_gs.for_acourse[0].attribute_set:
+                        if not each:
+                            pass
+                        elif each.has_key("start_enroll"):
+                            start_enroll = each["start_enroll"]
+                        elif each.has_key("end_enroll"):
+                            end_enroll = each["end_enroll"]
+
+                    data["Course"] = "Foundation_Course" + "_" + start_enroll.strftime("%d-%b-%Y") + "_" + end_enroll.strftime("%d-%b-%Y")
+
+                else:
+                    # Courses other than FC
+                    data["Course"] = sce_gs.for_acourse[0].name
+                data["Completed On"] =  sce_gs.completed_on.strftime("%d/%m/%Y")
+                
+                remaining_count = None
+                enrolled_list = []
+                approved_list = []
+                rejected_list = []
+                if sce_gs.has_key("has_enrolled"):
+                    if sce_gs["has_enrolled"]:
+                        enrolled_list = sce_gs["has_enrolled"]
+
+                if sce_gs.has_key("has_approved"):
+                    if sce_gs["has_approved"]:
+                        approved_list = sce_gs["has_approved"]
+
+                if sce_gs.has_key("has_rejected"):
+                    if sce_gs["has_rejected"]:
+                        rejected_list = sce_gs["has_rejected"]
+
+                data["Enrolled"] = len(enrolled_list)
+                data["Approved"] = len(approved_list)
+                data["Rejected"] = len(rejected_list)
+                remaining_count = len(enrolled_list) - (len(approved_list) + len(rejected_list))
+                data["Remaining"] = remaining_count
+
+                enrollment_details.append(data)
+    page='1'                
     return render_to_response (
         "ndf/group_dashboard.html",
         {
-            'group_id': group_id, 'groupid': group_id
+            'group_id': group_id, 'groupid': group_id,
+            'approval': approval, 'enrollment_columns': enrollment_columns, 'enrollment_details': enrollment_details,'prof_pic_obj': profile_pic_image,'banner_pic':banner_pic,'page':page
         },
         context_instance=RequestContext(request)
     )
+

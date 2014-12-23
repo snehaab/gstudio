@@ -30,7 +30,8 @@
 <!-- css for drawer widget -->
 <style type = "text/css">
 
-  .movingDiv{
+  /*annotations*/
+  /*.movingDiv{
     display:none; 
     position:absolute;
     color: green;
@@ -48,7 +49,8 @@
     color: green;
     padding-left: 5px;
     padding-right: 5px;
-  }
+  }*/
+  /* ---END of annotations*/
     
   .divider-line { font-size: xx-large; color:lightgray; }
   .line-height-2 { line-height:2; }
@@ -124,33 +126,6 @@
   
   }
 
-  .reply-btn{
-    cursor: pointer;
-    /*margin-left: -1.3em;
-    margin-top: -1em;
-    position: relative;
-    width: 21.87rem;*/
-  }
-
-  .reply-btn:hover {
-    font-weight: bold;
-  }
-
-  .disc-replies { 
-    
-    padding:10px;
-    background-color:#d8f1f3;
-    width:27em;
-    max-width: 40em;
-    margin-left: 48px; 
-    margin-top: 10px;
-  }
-
-  .align-center {
-    margin: 0 auto;
-    display: block;
-  }
-
   #html-res-iframe{
     border: none;
   }
@@ -218,7 +193,9 @@
       <dd class="active page-view"><a class="view-page"><i class="fi-eye"></i> {% trans "View" %}</a></dd>
       <!-- calling ndf tags for discussion replies -->
       {% get_disc_replies node.pk group_id global_disc_all_replies as all_replies %}
-
+     {% comment %}
+      <dd class="info-view"><a class="view-info"><i class=""></i> {% trans "Info Box" %}</a></dd>
+      {% endcomment %}
       <dd class="discussion-view"><a class="view-discussion"><i class="fi-comment"></i>
         
           {% if all_replies %}
@@ -233,6 +210,7 @@
 
         </a>
       </dd>
+
 
     </dl>
   </h1>
@@ -346,6 +324,7 @@
           Resource Type: {{node.mime_type}}<br/><br/>          
           
           {% if node.collection_set %} 
+
             {% if 'image' in node.mime_type or 'video' in node.mime_type %}                    
             <!-- Orbit image slider only for image and video collections--> 
               
@@ -411,12 +390,17 @@
                   <iframe id="html-res-iframe" width="100%" seamless="seamless" src="{% url 'read_file' group_name_tag node grid_fs_obj.filename %}">
                     <p>Your browser does not support the audio element </p>
                   </iframe>
+                  {% elif 'pdf' in node.mime_type %}
+                      <iframe width="100%" style="height:90vh;" src="/static/ndf/bower_components/pdfjs-build/generic/web/viewer.html?file={% url 'read_file' group_name_tag node grid_fs_obj.filename %}"></iframe>
+                      <br/>
+                      <a target="_blank" href="/static/ndf/bower_components/pdfjs-build/generic/web/viewer.html?file={% url 'read_file' group_name_tag node grid_fs_obj.filename %}">Full screen view</a>
                 {% else %}
                   <a href="{% url 'read_file' group_name_tag node grid_fs_obj.filename %}">
                     {{ grid_fs_obj.filename }}
                   </a>
                 {% endif %}       
             {% endif %}
+            <!-- end of if 'image' in node.mime_type ... -->
 
           {% else %}
               {% if 'image' in node.mime_type %}
@@ -441,6 +425,10 @@
                 <iframe id="html-res-iframe" width="100%" seamless="seamless" src="{% url 'read_file' group_name_tag node grid_fs_obj.filename %}">
                   <p>Your browser does not support the audio element </p>
                 </iframe>
+              {% elif 'pdf' in node.mime_type %}
+                <iframe width="100%" style="height:90vh;" src="/static/ndf/bower_components/pdfjs-build/generic/web/viewer.html?file={% url 'read_file' group_name_tag node grid_fs_obj.filename %}"></iframe>
+                <br/>
+                <a target="_blank" href="/static/ndf/bower_components/pdfjs-build/generic/web/viewer.html?file={% url 'read_file' group_name_tag node grid_fs_obj.filename %}">Full screen view</a>
               {% else %}
                 <a href="{% url 'read_file' group_name_tag node grid_fs_obj.filename %}">
                   {{ grid_fs_obj.filename }}
@@ -589,7 +577,19 @@
         </div>
         
       {% endif %}
-      
+      <div id="view-info" style="display:none;">
+       {% get_json node.pk as jsonobj %}
+       {% str_to_dict jsonobj as obj  %}
+       <table>
+   <tbody>
+        {% for key, value in obj.items %}
+        <tr>          
+        <td> {{key}} : {{value}} </td>
+        </tr>
+        {% endfor %}
+    <tbody>   
+</table>
+     </div>
 
       <div id="view-discussion" style="display:none;">
       <!-- discussion content area -->
@@ -637,7 +637,8 @@
 
             {% check_group node as is_group %}
             {% if is_group %}
-              {% if user.is_superuser or node.created_by == user.id %}
+              {% check_is_gstaff groupid request.user as is_gstaff %}
+              {% if is_gstaff %}
               <a href="{% url edit_url group_name_tag %}" class="tiny round button edit"><i class="fi-pencil"></i> {% trans "Edit" %}</a>
               {% endif %}
 
@@ -739,8 +740,12 @@
             <input type="hidden" id="groupname" value="{{node}}">
             {% if user.is_authenticated %}
               {% if user_access == "allow" %}
-               {% if user.is_superuser or node.created_by == user.id %}
-                   <li><a href="{% url 'create_sub_group' group_id %}" class="tiny round button">create subgroup</a></li>
+               {% if user.is_superuser %}
+                  <li>
+                    <a href="{% url 'create_sub_group' group_id %}" class="tiny round button">
+                    <span class="fi-plus">&nbsp;&nbsp; {% trans "New SubGroup" %}
+                    </a>
+                  </li>
                {% endif %}
               {% endif %}
             {% if user_is_joined == "joined" %}
@@ -972,15 +977,29 @@
 
   $(document).on('click','.view-discussion',function(){
     $("#view-page").css("display", "none");
+    $("#view-info").css("display", "none");
     $(".page-view").removeClass("active");
+    $(".info-view").removeClass("active");
     $(".discussion-view").addClass("active");    
     $("#view-discussion").css("display", "block");
 
   });
 
+  $(document).on('click','.view-info',function(){
+    $("#view-page").css("display", "none");
+    $("#view-discussion").css("display", "none");
+    $(".page-view").removeClass("active");
+    $(".discussion-view").removeClass("active");    
+    $(".info-view").addClass("active");    
+    $("#view-info").css("display", "block");
+
+  });
+
   $(document).on('click','.view-page',function(){
     $("#view-discussion").css("display", "none");
+    $("#view-info").css("display", "none");
     $(".discussion-view").removeClass("active");
+    $(".info-view").removeClass("active");
     $(".page-view").addClass("active");    
     $("#view-page").css("display", "block");
   });
@@ -1100,5 +1119,5 @@
     })
 
   });
-
+  
 </script>

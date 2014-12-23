@@ -185,6 +185,53 @@ class Command(BaseCommand):
           quiz_type.attribute_type_set.append(collection.Node.one({'_type': u'AttributeType', 'name': u'end_time'}))
           quiz_type.save()
 
+        #Creation Gsystem Eventtype as a container to hold the Event types
+        glist = collection.Node.one({'_type': "GSystemType", 'name': "GList"})
+        GlistItem=collection.Node.one({'_type': "GSystemType","name":"GListItem"})
+        #create super container list Eventlist
+        #First check if EventList Exist or not
+        #Eventtype and College Type Glist Creation
+        Eventtype=collection.Node.one({'member_of':ObjectId(glist._id),"name":"Eventtype"})
+        if Eventtype is None:
+          glist_container = collection.GSystem()
+          glist_container.name=u"Eventtype"
+          glist_container.status = u"PUBLISHED"
+          glist_container.created_by=user_id
+          glist_container.member_of.append(glist._id)
+          glist_container.save()
+          print "\n Eventtype Created."
+        collegeevent=collection.Node.one({"member_of":ObjectId(glist._id),"name":"CollegeEvents"})
+        if not collegeevent:
+            node = collection.GSystem()
+            node.name=u"CollegeEvents"
+            node.status = u"PUBLISHED"
+            node.created_by=user_id
+            node.member_of.append(glist._id)
+            node.save()
+            print "\n CollegeEvents Created."
+  
+        Event=collection.Node.find_one({'_type':"GSystemType","name":"Event"})  
+        if Event:
+          All_Event_Types=collection.Node.find({"type_of": ObjectId(Event._id)})
+          Eventtype=collection.Node.one({'member_of':ObjectId(glist._id),"name":"Eventtype"})
+          CollegeEvents=collection.Node.one({"name":"CollegeEvents"})
+          Event_type_list=[]
+          College_type_list=[]
+          for i in All_Event_Types:
+              if (GlistItem._id not in i.member_of): 
+                  i.member_of.append(GlistItem._id)
+                  i.save()
+              if i.name not in ['Classroom Session','Exam']:
+                 Event_type_list.append(i._id)
+              if i.name in ['Classroom Session','Exam']:
+                 College_type_list.append(i._id)
+                  
+          collection.update({'_id': ObjectId(Eventtype._id)}, {'$set': {'collection_set': Event_type_list}}, upsert=False, multi=False)
+          
+          collection.update({'_id': ObjectId(CollegeEvents._id)}, {'$set': {'collection_set': College_type_list}}, upsert=False, multi=False)
+          
+        #End of adding Event Types and CollegeEvents
+        
         # Creating GSystem(s) of GList for GSTUDIO_TASK_TYPES
         # Divided in two parts:
         # 1) Creating Types as GList nodes from GSTUDIO_TASK_TYPES
@@ -193,7 +240,6 @@ class Command(BaseCommand):
         glist = collection.Node.one({'_type': "GSystemType", 'name': "GList"})
         task_type_ids = []
         # First: Creating Types as GList nodes from GSTUDIO_TASK_TYPES
-        print "\n"
         info_message = "\n"
         for gl_node_name in GSTUDIO_TASK_TYPES:
           gl_node = collection.Node.one({'_type': "GSystem", 'member_of':glist._id, 'name': gl_node_name})
@@ -242,6 +288,7 @@ class Command(BaseCommand):
         else:
           print " GList ("+glc_node_name+") container already created !"
           info_message += "\n GList ("+glc_node_name+") container already created !"
+        
         print "\n"
         info_message += "\n\n"
         log_list.append(info_message)
@@ -520,13 +567,14 @@ def create_sts(factory_gsystem_types,user_id):
   theme_GST = collection.Node.one({'_type': 'GSystemType', 'name': 'Theme'})
   topic_GST = collection.Node.one({'_type': 'GSystemType', 'name': 'Topic'})
   topics = collection.Node.one({'_type': 'GSystemType', 'name': 'Topics'})
-  if not topics.collection_set:
-    topics.collection_set.append(theme_GST._id)
-    topics.collection_set.append(topic_GST._id)
-    topics.created_by = 1
-    topics.modified_by = 1
-    topics.status = u"PUBLISHED"
-    topics.save()
+  if theme_GST and topic_GST and topics:
+    if not topics.collection_set:
+      topics.collection_set.append(theme_GST._id)
+      topics.collection_set.append(topic_GST._id)
+      topics.created_by = 1
+      topics.modified_by = 1
+      topics.status = u"PUBLISHED"
+      topics.save()
 
 def clean_structure():
   '''
