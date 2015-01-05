@@ -14,11 +14,11 @@ from gnowsys_ndf.settings import LANGUAGES
 from gnowsys_ndf.notification import models as notification
 from django_mongokit import get_database
 
+
 try:
     from bson import ObjectId
 except ImportError:  # old pymongo
     from pymongo.objectid import ObjectId
-
 
 ''' -- imports from application folders/files -- '''
 from gnowsys_ndf.ndf.models import *
@@ -27,7 +27,8 @@ from gnowsys_ndf.ndf.views.methods import get_user_group, get_user_task, get_use
 from gnowsys_ndf.ndf.views.file import * 
 from gnowsys_ndf.settings import GAPPS,GSTUDIO_SITE_DEFAULT_LANGUAGE, GSTUDIO_RESOURCE_CREATION_RATING, GSTUDIO_RESOURCE_REGISTRATION_RATING
 from gnowsys_ndf.ndf.templatetags.ndf_tags import get_all_user_groups
-
+from gnowsys_ndf.ndf.views.forum import * 
+from gnowsys_ndf.ndf.models import GSystemType, GSystem,Node
 #######################################################################################################################################
 
 db = get_database()
@@ -36,12 +37,9 @@ collection_tr = db[Triple.collection_name]
 GST_IMAGE = collection.GSystemType.one({'name': GAPPS[3]})
 at_user_pref=collection.Node.one({'$and':[{'_type':'AttributeType'},{'name':'user_preference_off'}]})
 ins_objectid  = ObjectId()
-
-
 #######################################################################################################################################
 #                                                                     V I E W S   D E F I N E D   F O R   U S E R   D A S H B O A R D
 #######################################################################################################################################
-
 
 def userpref(request,group_id):
     auth = collection.Node.one({'_type': 'Author', 'name': unicode(request.user.username) })
@@ -257,16 +255,21 @@ def uDashboard(request, group_id):
         {'_type': "Group", 'name': {'$nin': ["home", request.user.username]}, 
         '$or': [{'group_admin': request.user.id}, {'author_set': request.user.id}],
     }).sort('last_update', -1).limit(10)
-
+    
     dashboard_count.update({'group':group_cur.count()})  
 
     GST_PAGE = collection.Node.one({'_type': "GSystemType", 'name': 'Page'})
-    page_cur = collection.GSystem.find({'member_of': {'$all': [GST_PAGE._id]}, 'created_by':int(ID)})
-    file_cur = collection.Node.find({'_type':  u"File", 'created_by': int(ID) })
-
+    page_cur = collection.GSystem.find({'member_of': {'$all': [GST_PAGE._id]}, 'created_by':int(ID), "status":{"$nin":["HIDDEN"]}})
+    file_cur = collection.Node.find({'_type':  u"File", 'created_by': int(ID), 'status':{"$nin":["HIDDEN"]} })
+    ########Added for Forum and quiz count############
+    quiz_gst = collection.Node.one({"name":"Quiz"})
+    quiz_count = collection.Node.find({"_type":"GSystem","member_of":quiz_gst._id, 'created_by':int(ID), "status":{"$nin":["HIDDEN"]}})
+    forum_gst = collection.Node.one({"name":"Forum"})
+    forum_count = collection.Node.find({"_type":"GSystem","member_of":forum_gst._id, 'created_by':int(ID), "status":{"$nin":["HIDDEN"]}}) 
+   
     for i in group_cur:
         group_list.append(i)
-
+     
     # user_task = get_user_task(userObject)
     #user_notification = get_user_notification(userObject)
     #user_activity = get_user_activity(userObject)
@@ -349,11 +352,8 @@ def uDashboard(request, group_id):
                     profile_pic_image = collection.Node.one(
                         {'_type': "File", '_id': each["has_profile_pic"][0]}
                     )
-
-                    break
-
-# Rating for page creation:
-
+                    break                
+  
     return render_to_response(
         "ndf/uDashboard.html",
         {
@@ -365,9 +365,12 @@ def uDashboard(request, group_id):
             'file_count':file_cur.count(), 'file_create_rate':file_cur.count() * GSTUDIO_RESOURCE_CREATION_RATING,
             'user_groups':group_list, 'user_task': user_assigned, 'user_activity':user_activity,
             'user_notification':notification_list,
-            'dashboard_count':dashboard_count,
-            'total_activity_rating': GSTUDIO_RESOURCE_REGISTRATION_RATING + ((page_cur.count() + file_cur.count()) * GSTUDIO_RESOURCE_CREATION_RATING)
-             
+            'dashboard_count':dashboard_count,  
+            'forum_count':forum_count.count(),'forum_create_rate':forum_count.count() * GSTUDIO_RESOURCE_CREATION_RATING,
+            'quiz_count':quiz_count.count(), 'quiz_create_rate':quiz_count.count() * GSTUDIO_RESOURCE_CREATION_RATING,
+            'total_activity_rating': GSTUDIO_RESOURCE_REGISTRATION_RATING + ((page_cur.count() + quiz_count.count() + file_cur.count() + forum_count.count()) * GSTUDIO_RESOURCE_CREATION_RATING)
+            
+                 
         },
         context_instance=RequestContext(request)
     )
